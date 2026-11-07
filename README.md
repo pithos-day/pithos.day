@@ -62,8 +62,11 @@ upstream で `config/site.yaml` や `src/pages/about.md` のスキーマ・レ�
 Cloudflare Workers Builds でデプロイします (`wrangler.jsonc`)。
 
 - ビルドコマンド: `pnpm build`
-- デプロイコマンド: `npx wrangler deploy`
+- デプロイコマンド: `pnpm exec wrangler deploy`
+- プレビュー (本番以外のブランチ) のデプロイコマンド: `pnpm exec wrangler versions upload`
 - 環境変数: `R2_*` (と任意で `R2_SYNC_IF_MISSING=1`)。詳しくは [docs/r2-sync.md](./docs/r2-sync.md)
+
+`npx` は使えません。`package.json` の `devEngines` が pnpm を指定しているため、npm が `EBADDEVENGINES` で停止します。
 
 ## ライセンス
 
