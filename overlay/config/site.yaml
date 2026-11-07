@@ -1,0 +1,129 @@
+# =============================================================================
+# blog-hishaku サイト設定
+# =============================================================================
+# 検証スキーマ: src/lib/config/schema.ts
+# 対応トップレベルキー: site / i18n / categoryMap / social / seo / content / analytics
+# 未知のキーは読み込み時に無視されます (dev server ではコンソールに警告)。
+# 変更後は dev server の再起動 (または再ビルド) が必要です。
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# サイト基本情報
+# -----------------------------------------------------------------------------
+site:
+  title: 日々の備忘録 # サイト名
+  alternate: pithos # サイト名のアルファベット表記
+  subtitle: その日を摘め # ヘッダーのサブタイトル
+  name: pithos # プロフィール名
+  description: 基本趣味のことなど… # meta description・RSS の説明文
+  avatar: /assets/avatar.webp # プロフィール画像・favicon・OGP 画像のフォールバック
+  author: pithos # meta author
+  url: https://pithos.day/ # canonical / OGP / RSS の基準 URL
+  defaultOgImage: /assets/avatar.webp # カバー未指定時の既定 OGP 画像
+  startYear: 2026 # フッターのコピーライト表記の開始年
+  timezone: Asia/Tokyo # IANA 形式。日付の表示・アーカイブ・コンテンツ日付に使用
+  keywords: # 全ページの meta keywords に追加
+    - pithos
+    - ブログ
+    - 日々の備忘録
+
+# -----------------------------------------------------------------------------
+# 国際化 (i18n)
+#   defaultLocale: <html lang> に使われる既定言語コード
+#   locales      : 有効な言語の一覧 (code は BCP 47 短形式 / label は表示名)
+#   UI 文言の辞書は src/i18n/translations/ に置く。URL の言語プレフィックスは未実装。
+# -----------------------------------------------------------------------------
+i18n:
+  defaultLocale: ja
+  locales:
+    - code: ja
+      label: 日本語
+
+# -----------------------------------------------------------------------------
+# カテゴリ対応表
+#   記事 frontmatter のカテゴリ表示名 → URL スラッグ
+#   未登録のカテゴリは表示名がそのままスラッグになる
+# -----------------------------------------------------------------------------
+categoryMap:
+  技術: tech
+  ゲーム: game
+  映像作品: movie
+  読書: reading
+  雑談: random
+
+# -----------------------------------------------------------------------------
+# SNS リンク (右サイドバーのプロフィールに表示。キー: 表示用 ID)
+#   url      : リンク先 (mailto: や /rss.xml も可)
+#   icon     : 任意。Iconify ID (集合:アイコン名)。省略時はキー名をテキスト表示。
+#              集合は package.json の @iconify-json/<集合> を入れたもののみ使用可
+#              (未インストールの集合・存在しないアイコンはビルド時にエラー)
+#   color    : 任意。リンクとアイコンの色 (16 進カラー)
+#   colorDark: 任意。ダークモード時の色 (未指定時は color のまま)。
+#              黒系アイコン (github 等) は暗色の背景に沈むため明るめを指定する
+# -----------------------------------------------------------------------------
+social:
+  github:
+    url: https://github.com/pithos-day
+    icon: ri:github-fill
+    color: '#191717'
+    colorDark: '#f0f6fc'
+  rss:
+    url: /rss.xml
+    icon: ri:rss-line
+    color: '#ff6600'
+
+# -----------------------------------------------------------------------------
+# SEO
+#   robots: astro-robots-txt へ渡す policy / host / sitemap 設定 (任意)。
+#          空 (未設定) なら全クロール許可で sitemap.xml を出力
+# -----------------------------------------------------------------------------
+seo:
+  robots:
+    policy:
+      - userAgent: 'Googlebot-Image'
+        disallow: '/'
+      - userAgent: '*'
+        allow: 
+          - '/$'
+          - '/post/*'
+        disallow: '/*'
+
+# -----------------------------------------------------------------------------
+# アクセス解析 (umami)
+#   enabled  : true で有効化
+#   id       : umami 管理画面の Website ID
+#   endpoint : 自己ホスト時のサーバー URL (省略時 https://cloud.umami.is)
+#   dev server 上では自動的に無効化されます。
+# -----------------------------------------------------------------------------
+analytics:
+  umami:
+    enabled: true
+    id: 7c0ae3e6-9ea9-4224-a430-8a38d49839f3
+    endpoint: https://cloud.umami.is
+
+# -----------------------------------------------------------------------------
+# コンテンツ (Markdown 拡張) 設定
+# 構文・埋め込み等のオンオフ。未実装のキーは無視されます。
+# -----------------------------------------------------------------------------
+content:
+  addBlankTarget: true # 外部リンクを新規タブで開く
+  smoothScroll: true # 見出しアンカーのスムーススクロール
+  addHeadingLevel: true # 見出しへ data-level (H2 等) を付与
+  enableToc: true # 左サイドバーの目次パネル (記事ページのみ、h2/h3 をツリー表示)
+  enhanceCodeBlock: true # コードブロックの枠化・折りたたみ等 (総スイッチ)
+  enableCodeCopy: true # コードのコピーボタン
+  enableCodeFullscreen: false # コード全画面ボタン
+  enableShokaContainers: true # ::: 提醒ブロック ;;; タブ +++ 折りたたみ
+  enableShokaAttrs: true # [text]{.class} 属性構文
+  enableShokaEffects: true # ++下線++ ==ハイライト== ~下添字~ ^上添字^
+  enableShokaSpoiler: true # !!隠し文字!!
+  enableShokaRuby: true # {漢字^かんじ} ルビ
+  enableShokaHexoTags: true # {% links %} {% media %} Hexo タグ
+  enableMath: true # $数式$ KaTeX
+  enableCodeMeta: true # コードブロックメタ (title, mark)
+  # リンク埋め込み (独行リンクをカード化) — previewCacheTime の単位は日数
+  # 初回ビルド時に外部 URL へメタデータ取得でアクセスします (失敗時はフォールバック)
+  enableLinkEmbed: true # 独行リンクを埋め込みカードに変換 (総スイッチ)
+  enableTweetEmbed: true # 独行の Twitter/X リンクをツイート埋め込みに
+  enableOGPreview: true # 独行の一般リンクに OG プレビューカードを表示
+  previewCacheTime: 30 # OG プレビューデータのキャッシュ日数
