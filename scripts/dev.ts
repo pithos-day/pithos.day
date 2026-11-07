@@ -5,7 +5,7 @@
  * overlay から削除したファイルは反映しない (再起動すると片付く)。
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, watch } from 'node:fs';
 import path from 'node:path';
 import { assemble, copyOverlayFile, OVERLAY_DIR, WORK_DIR } from './assemble';
@@ -26,10 +26,30 @@ const watcher = watch(OVERLAY_DIR, { recursive: true }, (_event, filename) => {
     });
 });
 
+// TTY が無い環境では astro dev がバックグラウンドで起動し、pnpm dev はすぐ終了する。
+// その場合も watcher は残し、終了時に `astro dev stop` でサーバーを止める。
+let background = false;
+let stopping = false;
+
 server.on('exit', (code) => {
+  if (code === 0 && !stopping) {
+    background = true;
+    console.log('[dev] astro dev はバックグラウンドで動いています。Ctrl+C で停止します');
+    return;
+  }
   watcher.close();
   process.exit(code ?? 0);
 });
+
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(signal, () => server.kill(signal));
+  process.on(signal, () => {
+    stopping = true;
+    if (!background) {
+      server.kill(signal);
+      return;
+    }
+    watcher.close();
+    spawnSync('pnpm', ['exec', 'astro', 'dev', 'stop'], { cwd: WORK_DIR, stdio: 'inherit' });
+    process.exit(0);
+  });
 }
