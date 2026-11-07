@@ -50,10 +50,11 @@ pnpm preview           # ./dist を wrangler dev で確認 (画像は表示さ�
 
 ## blog-hishaku の更新
 
-`hishaku.lock` を使いたい commit の SHA に書き換えます。タグから SHA を調べるには次のコマンドを使います。
+`hishaku.lock` を使いたい commit の SHA に書き換えます。タグから SHA を調べるには次のコマンドを使います
+(`^{}` 付きの行があるタグは annotated tag なので、その行の SHA を使います)。
 
 ```bash
-git ls-remote https://github.com/pithos-day/blog-hishaku.git 'refs/tags/v*^{}'
+git ls-remote --tags https://github.com/pithos-day/blog-hishaku.git
 ```
 
 次の `pnpm dev` / `pnpm build` で取得し直されます。
