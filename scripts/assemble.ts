@@ -1,7 +1,8 @@
 /**
  * blog-hishaku を取得し、このリポジトリのファイルを被せて `.hishaku/` に組み立てる。
  *
- * 1. `hishaku.lock` の commit を `.hishaku/` に取得する (同じ commit なら取得を省略し node_modules を再利用)
+ * 1. `hishaku.lock` の ref (タグ名か commit SHA) を `.hishaku/` に取得する
+ *    (前回と同じ ref なら取得を省略し node_modules を再利用)
  * 2. 前回被せたファイルを片付け、upstream の追跡ファイルを元に戻す
  * 3. upstream のサンプル (記事・画像・不要アセット) を削除する
  * 4. `overlay/` を同じ相対パスで上書きコピーする
@@ -15,7 +16,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, promises as fs } from 'node:fs';
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runMain } from './cli';
@@ -26,6 +27,15 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 export const WORK_DIR = path.join(ROOT, '.hishaku');
 export const OVERLAY_DIR = path.join(ROOT, 'overlay');
 const LOCK_FILE = path.join(ROOT, 'hishaku.lock');
+
+const SHA_PATTERN = /^[0-9a-f]{40}$/;
+const TAG_PATTERN = /^[\w.-]+$/;
+
+/**
+ * 取得した ref の記録。同じ ref なら取得を省略する。
+ * タグの付け直しは検出しないため、取り直すときは `.hishaku/` を消す。
+ */
+const FETCHED_REF_FILE = path.join(WORK_DIR, '.git', 'hishaku-ref');
 
 /** 前回コピーした overlay のファイル一覧 (overlay から消したファイルを片付けるため) */
 const OVERLAY_MANIFEST = path.join(WORK_DIR, '.overlay-files');
@@ -44,30 +54,31 @@ function git(args: string[], cwd = WORK_DIR): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'inherit'] }).trim();
 }
 
-async function readLockedCommit(): Promise<string> {
-  const commit = (await fs.readFile(LOCK_FILE, 'utf-8')).trim();
-  if (!/^[0-9a-f]{40}$/.test(commit)) {
-    throw new Error(`hishaku.lock には 40 桁の commit SHA を書いてください (現在: "${commit}")`);
+/**
+ * `hishaku.lock` の ref を読む。タグ名 (例: `v1.0.1`) か 40 桁の commit SHA を受け付ける。
+ */
+async function readLockedRef(): Promise<string> {
+  const ref = (await fs.readFile(LOCK_FILE, 'utf-8')).trim();
+  if (!SHA_PATTERN.test(ref) && !TAG_PATTERN.test(ref)) {
+    throw new Error(`hishaku.lock にはタグ名か 40 桁の commit SHA を書いてください (現在: "${ref}")`);
   }
-  return commit;
+  return ref;
 }
 
-function currentCommit(): string | undefined {
-  if (!existsSync(path.join(WORK_DIR, '.git'))) return undefined;
-  try {
-    return git(['rev-parse', 'HEAD']);
-  } catch {
-    return undefined;
-  }
+/** 前回取得した ref (`.hishaku/` が無い・記録が無いときは undefined) */
+async function fetchedRef(): Promise<string | undefined> {
+  const recorded = await fs.readFile(FETCHED_REF_FILE, 'utf-8').catch(() => undefined);
+  return recorded?.trim() || undefined;
 }
 
-async function fetchUpstream(commit: string): Promise<void> {
-  console.log(`[assemble] blog-hishaku@${commit.slice(0, 7)} を取得します`);
+async function fetchUpstream(ref: string): Promise<void> {
+  console.log(`[assemble] blog-hishaku@${ref} を取得します`);
   await fs.rm(WORK_DIR, { recursive: true, force: true });
   await fs.mkdir(WORK_DIR, { recursive: true });
   git(['init', '-q']);
-  git(['fetch', '-q', '--depth', '1', UPSTREAM_URL, commit]);
+  git(['fetch', '-q', '--depth', '1', UPSTREAM_URL, SHA_PATTERN.test(ref) ? ref : `refs/tags/${ref}`]);
   git(['checkout', '-q', 'FETCH_HEAD']);
+  await fs.writeFile(FETCHED_REF_FILE, `${ref}\n`);
 }
 
 /**
@@ -128,13 +139,13 @@ async function linkLocalData(): Promise<void> {
 }
 
 export async function assemble({ install }: { install: boolean }): Promise<void> {
-  const commit = await readLockedCommit();
-  if (currentCommit() === commit) {
+  const ref = await readLockedRef();
+  if ((await fetchedRef()) === ref) {
     await resetToUpstream();
   } else {
-    await fetchUpstream(commit);
+    await fetchUpstream(ref);
   }
-  // upstream の .git は不要だが、次回の commit 判定と resetToUpstream の checkout に使うため残す
+  // upstream の .git は、次回の ref 判定と resetToUpstream の checkout に使うため残す
   await fs.writeFile(path.join(WORK_DIR, '.git', 'info', 'exclude'), '.overlay-files\n');
   await removeUpstreamSamples();
   await applyOverlay();

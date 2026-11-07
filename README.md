@@ -7,7 +7,7 @@ blog-hishaku はフォークせず、ビルド時に取得してこのリポジ�
 
 ```
 pithos.day/
-  hishaku.lock   # 使う blog-hishaku の commit SHA
+  hishaku.lock   # 使う blog-hishaku のタグ名 (例: v1.0.1) か commit SHA
   overlay/       # blog-hishaku に同じ相対パスで上書きコピーするファイル (設定・about・アバター)
   content/       # R2 と同期する記事 (blog/) と画像 (img/)。git 管理外
   .cache/        # OG カード・LQIP・関連記事のキャッシュ。git 管理外
@@ -20,7 +20,7 @@ pithos.day/
 
 `pnpm assemble` (`scripts/assemble.ts`) は次の順で `.hishaku/` を作ります。
 
-1. `hishaku.lock` の commit を取得する (同じ commit なら取得を省略し、`node_modules` を再利用)
+1. `hishaku.lock` のタグか commit を取得する (前回と同じなら取得を省略し、`node_modules` を再利用)
 2. upstream のサンプル記事・画像と `public/assets/avatar.svg` を削除する
 3. `overlay/` をコピーする
 4. `content/blog` → `src/content/blog`、`content/img` → `public/img`、`.cache` → `.cache` を symlink でつなぐ
@@ -50,14 +50,11 @@ pnpm preview           # ./dist を wrangler dev で確認 (画像は表示さ�
 
 ## blog-hishaku の更新
 
-`hishaku.lock` を使いたい commit の SHA に書き換えます。タグから SHA を調べるには次のコマンドを使います
-(`^{}` 付きの行があるタグは annotated tag なので、その行の SHA を使います)。
-
-```bash
-git ls-remote --tags https://github.com/pithos-day/blog-hishaku.git
-```
-
+`hishaku.lock` を使いたいタグ名 (例: `v1.0.2`) に書き換えます。リリース前の commit を使うときは、40 桁の commit SHA も書けます。
 次の `pnpm dev` / `pnpm build` で取得し直されます。
+
+- 取得し直すかどうかは `hishaku.lock` の文字列だけで判定します。同じタグ名のまま付け直されたタグを取り直すには、`.hishaku/` を削除してください
+- 存在しないタグを書くと取得に失敗し、`.hishaku/` は空になります。正しい値に戻せば次回取得し直されます
 upstream で `config/site.yaml` や `src/pages/about.md` のスキーマ・レイアウトが変わったときは、`overlay/` の同名ファイルも追従させてください。
 
 ## デプロイ
