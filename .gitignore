@@ -1,0 +1,27 @@
+# 依存・ビルド成果物
+node_modules
+dist/
+.wrangler/
+
+# 組み立て先 (scripts/assemble.ts が blog-hishaku を取得して作る)
+.hishaku/
+
+# R2 と同期する記事・画像 (docs/r2-sync.md)
+content/
+
+# 生成キャッシュ (OG カード・LQIP・関連記事)
+.cache/
+
+# 認証情報
+.env
+.env.production
+.env*.local
+
+# ログ
+npm-debug.log*
+pnpm-debug.log*
+
+# OS / エディタ
+.DS_Store
+.idea/
+.vscode/
