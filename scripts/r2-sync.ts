@@ -105,11 +105,14 @@ interface FileEntry {
   etag?: string;
 }
 
-type TransferPlan = 'upload' | 'download' | 'skip';
+type Direction = 'pull' | 'push';
 
+/** 1 ファイルを source から destination へ転送するか */
+type TransferPlan = 'transfer' | 'skip';
+
+/** 1 ディレクトリ分の同期結果 (`transferred` は pull ならダウンロード数、push ならアップロード数) */
 interface SyncResult {
-  uploaded: number;
-  downloaded: number;
+  transferred: number;
   skipped: number;
   failed: number;
 }
@@ -231,8 +234,8 @@ async function listRemoteFiles(client: S3Client, bucket: string): Promise<Map<st
 }
 
 /**
- * 1 ファイルの取り扱いを決める。
- * `direction` は「取得元 -> 保管先」の側 (pull なら R2 -> ローカル)。
+ * 1 ファイルを転送するかを決める。
+ * source は転送元、destination は転送先 (pull なら R2 -> ローカル、push ならローカル -> R2)。
  * source に無い場合は skip (そのファイルは逆方向で補充される)。
  *
  * `contentMatches` は size が一致したファイルの内容比較結果で、
@@ -245,43 +248,40 @@ function decideTransfer(
   contentMatches: boolean | undefined,
 ): TransferPlan {
   if (!source) return 'skip';
-  if (!destination) return 'download';
+  if (!destination) return 'transfer';
   // size が同じでも内容が異なることがある (バイト数が変わらない置換など)。
   // 比較せずに size だけで同一とみなすと、そういう変更が永遠に同期されない。
   if (source.size === destination.size && contentMatches !== false) return 'skip';
   // size または内容が異なる場合は更新日時の新しい方が勝つ (mtime だけの差で全量転送しないようにする)
-  return source.mtime > destination.mtime ? 'download' : 'skip';
+  return source.mtime > destination.mtime ? 'transfer' : 'skip';
 }
 
 /**
- * size が一致し、かつ更新日時の新しい方が転送候補になっているファイルについて、
- * 内容が一致するかを MD5 で確認する (ローカルの MD5 とリモートの ETag を比較)。
+ * ローカルファイルの内容がリモートと一致するかを MD5 で確認する (ローカルの MD5 とリモートの ETag を比較)。
  *
  * 比較材料が無い (マルチパートの ETag、読み込み失敗など) ときは undefined を返し、
  * 従来どおり size 一致を以って同一とみなす。
  */
-async function compareContent(
-  localDir: string,
-  key: string,
-  entry: FileEntry,
-  destinationEntry: FileEntry,
-  /** true なら `destinationEntry` がリモート (push)、false なら `entry` がリモート (pull) */
-  remoteIsDestination: boolean,
+async function matchesRemoteContent(
+  localPath: string,
+  remoteEtag: string | undefined,
 ): Promise<boolean | undefined> {
-  const { etag } = remoteIsDestination ? destinationEntry : entry;
   // マルチパートアップロードの ETag は内容の MD5 ではないので比較に使えない
-  if (!etag || etag.includes('-')) return undefined;
+  if (!remoteEtag || remoteEtag.includes('-')) return undefined;
 
-  const absolutePath = path.join(localDir, ...key.split('/'));
-  let md5: string | undefined;
   try {
-    md5 = createHash('md5')
-      .update(await fs.readFile(absolutePath))
+    const md5 = createHash('md5')
+      .update(await fs.readFile(localPath))
       .digest('hex');
+    return md5 === remoteEtag;
   } catch {
     return undefined;
   }
-  return md5 === etag;
+}
+
+/** バケットのキー (`/` 区切り) をローカルのパスへ変換する */
+function localPathFor(localDir: string, key: string): string {
+  return path.join(localDir, ...key.split('/'));
 }
 
 function contentTypeFor(key: string): string {
@@ -292,7 +292,7 @@ async function uploadFile(
   client: S3Client,
   bucket: string,
   key: string,
-  absolutePath: string,
+  localPath: string,
   entry: FileEntry,
   cacheable: boolean,
 ): Promise<void> {
@@ -300,7 +300,7 @@ async function uploadFile(
     new PutObjectCommand({
       Bucket: bucket,
       Key: key,
-      Body: createReadStream(absolutePath),
+      Body: createReadStream(localPath),
       ContentLength: entry.size,
       ContentType: contentTypeFor(key),
       ...(cacheable ? { CacheControl: IMAGE_CACHE_CONTROL } : {}),
@@ -312,16 +312,16 @@ async function downloadFile(
   client: S3Client,
   bucket: string,
   key: string,
-  absolutePath: string,
+  localPath: string,
 ): Promise<void> {
   const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
   if (!response.Body) throw new Error(`空の応答: ${bucket}/${key}`);
   const bytes = await response.Body.transformToByteArray();
-  await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-  await fs.writeFile(absolutePath, bytes);
+  await fs.mkdir(path.dirname(localPath), { recursive: true });
+  await fs.writeFile(localPath, bytes);
   // 次回の新旧判定が狂わないよう、リモートの最終更新時刻をローカルへ反映する
   if (response.LastModified) {
-    await fs.utimes(absolutePath, response.LastModified, response.LastModified);
+    await fs.utimes(localPath, response.LastModified, response.LastModified);
   }
 }
 
@@ -349,7 +349,7 @@ async function runPool<T>(
 async function syncMapping(
   client: S3Client,
   mapping: (typeof MAPPINGS)[number],
-  direction: 'pull' | 'push',
+  direction: Direction,
   options: SyncOptions,
 ): Promise<SyncResult> {
   const bucket = process.env[mapping.bucketEnv] ?? mapping.defaultBucket;
@@ -357,13 +357,9 @@ async function syncMapping(
 
   // --if-missing: ローカルにファイルが在るディレクトリの pull を省略する (CI の二重 pull 回避)。
   // 判定はローカルのファイル数だけなので、このとき API は一切呼ばない。
-  if (direction === 'pull' && options.ifMissing) {
-    if (await hasLocalFiles(localDir)) {
-      console.log(
-        `[r2-sync] ${mapping.label}: ローカルにファイルが在るため取得を省略 (--if-missing)`,
-      );
-      return { uploaded: 0, downloaded: 0, skipped: 0, failed: 0 };
-    }
+  if (direction === 'pull' && options.ifMissing && (await hasLocalFiles(localDir))) {
+    console.log(`[r2-sync] ${mapping.label}: ローカルにファイルが在るため取得を省略 (--if-missing)`);
+    return { transferred: 0, skipped: 0, failed: 0 };
   }
 
   const [localFiles, remoteFiles] = await Promise.all([
@@ -371,11 +367,13 @@ async function syncMapping(
     listRemoteFiles(client, bucket),
   ]);
 
-  const source = direction === 'push' ? localFiles : remoteFiles;
-  const destination = direction === 'push' ? remoteFiles : localFiles;
-  const result: SyncResult = { uploaded: 0, downloaded: 0, skipped: 0, failed: 0 };
+  const isPush = direction === 'push';
+  const source = isPush ? localFiles : remoteFiles;
+  const destination = isPush ? remoteFiles : localFiles;
+  const verb = isPush ? 'upload' : 'download';
+  const result: SyncResult = { transferred: 0, skipped: 0, failed: 0 };
 
-  const transfers: string[] = [];
+  const transfers: [key: string, entry: FileEntry][] = [];
   for (const [key, entry] of source) {
     const destinationEntry = destination.get(key);
     // size が同じでも内容が違う可能性があるのは、更新日時の新しい方が転送候補になっているときだけ。
@@ -386,37 +384,30 @@ async function syncMapping(
       destinationEntry.size === entry.size &&
       entry.mtime > destinationEntry.mtime
     ) {
-      contentMatches = await compareContent(
-        localDir,
-        key,
-        entry,
-        destinationEntry,
-        direction === 'push',
-      );
+      const remoteEntry = isPush ? destinationEntry : entry;
+      contentMatches = await matchesRemoteContent(localPathFor(localDir, key), remoteEntry.etag);
     }
-    const plan = decideTransfer(entry, destinationEntry, contentMatches);
-    if (plan === 'skip') {
+    if (decideTransfer(entry, destinationEntry, contentMatches) === 'skip') {
       result.skipped += 1;
       continue;
     }
-    transfers.push(key);
+    transfers.push([key, entry]);
   }
 
-  await runPool(transfers, TRANSFER_CONCURRENCY, async (key) => {
-    const entry = source.get(key) as FileEntry;
-    const absolutePath = path.join(localDir, ...key.split('/'));
+  await runPool(transfers, TRANSFER_CONCURRENCY, async ([key, entry]) => {
+    const localPath = localPathFor(localDir, key);
     try {
       if (options.dryRun) {
-        console.log(`  [dry-run] ${direction === 'push' ? 'upload  ' : 'download'} ${key}`);
-      } else if (direction === 'push') {
-        await uploadFile(client, bucket, key, absolutePath, entry, mapping.cacheable);
-        console.log(`  upload   ${key}`);
+        console.log(`  [dry-run] ${verb.padEnd(8)} ${key}`);
       } else {
-        await downloadFile(client, bucket, key, absolutePath);
-        console.log(`  download ${key}`);
+        if (isPush) {
+          await uploadFile(client, bucket, key, localPath, entry, mapping.cacheable);
+        } else {
+          await downloadFile(client, bucket, key, localPath);
+        }
+        console.log(`  ${verb.padEnd(8)} ${key}`);
       }
-      if (direction === 'push') result.uploaded += 1;
-      else result.downloaded += 1;
+      result.transferred += 1;
     } catch (error) {
       result.failed += 1;
       console.error(`  Error ${direction} ${key}:`, error);
@@ -424,7 +415,7 @@ async function syncMapping(
   });
 
   console.log(
-    `[r2-sync] ${mapping.label}: ${direction === 'push' ? `${result.uploaded} uploaded` : `${result.downloaded} downloaded`}, ${result.skipped} unchanged, ${result.failed} failed (bucket: ${bucket})`,
+    `[r2-sync] ${mapping.label}: ${result.transferred} ${verb}ed, ${result.skipped} unchanged, ${result.failed} failed (bucket: ${bucket})`,
   );
   if (result.failed > 0) {
     throw new Error(`${mapping.label} の ${result.failed} 件の転送に失敗しました`);
@@ -433,7 +424,7 @@ async function syncMapping(
 }
 
 async function runDirection(
-  direction: 'pull' | 'push',
+  direction: Direction,
   config: SyncConfig,
   options: SyncOptions,
 ): Promise<void> {
