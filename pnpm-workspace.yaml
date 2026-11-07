@@ -1,0 +1,6 @@
+# ビルドスクリプトの実行ポリシー (pnpm v11+ は allowBuilds マップを使用)
+# .hishaku/ は upstream の pnpm-workspace.yaml を持つ別ルートとして扱われる
+allowBuilds:
+  esbuild: true
+  workerd: true
+  sharp: true

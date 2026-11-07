@@ -1,0 +1,41 @@
+{
+  "name": "pithos-day",
+  "version": "1.0.0",
+  "description": "pithos.day のサイト。ビルド時に blog-hishaku を取得し、設定と記事を被せて組み立てる",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "assemble": "tsx scripts/assemble.ts",
+    "dev": "tsx scripts/dev.ts",
+    "build": "tsx scripts/r2-sync.ts pull && tsx scripts/assemble.ts && pnpm --dir .hishaku build && rm -rf dist && mv .hishaku/dist dist && tsx scripts/r2-sync.ts clean",
+    "preview": "wrangler dev",
+    "generate:lqips": "pnpm --dir .hishaku generate:lqips",
+    "generate:similarities": "pnpm --dir .hishaku generate:similarities",
+    "sync": "tsx scripts/r2-sync.ts both",
+    "sync:pull": "tsx scripts/r2-sync.ts pull",
+    "sync:push": "tsx scripts/r2-sync.ts push",
+    "check": "tsc --noEmit",
+    "prepare": "husky"
+  },
+  "author": "pithos",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.10.1",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.10.1",
+  "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1163.0",
+    "@types/node": "^26.6.6",
+    "husky": "^9.1.7",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.158.0"
+  }
+}
