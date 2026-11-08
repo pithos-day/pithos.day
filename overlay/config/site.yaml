@@ -125,5 +125,6 @@ content:
   # 初回ビルド時に外部 URL へメタデータ取得でアクセスします (失敗時はフォールバック)
   enableLinkEmbed: true # 独行リンクを埋め込みカードに変換 (総スイッチ)
   enableTweetEmbed: true # 独行の Twitter/X リンクをツイート埋め込みに
+  enableYouTubeEmbed: true # 独行の YouTube リンクを埋め込みプレイヤーに
   enableOGPreview: true # 独行の一般リンクに OG プレビューカードを表示
   previewCacheTime: 30 # OG プレビューデータのキャッシュ日数
